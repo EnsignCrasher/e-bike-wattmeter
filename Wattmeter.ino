@@ -77,6 +77,34 @@ taskDefinition task[20];
 
 /////////////////////////////////////////////////////////////////////////
 ////menu variables
+/*String mainMenuItems[] = {
+  "Reset",
+  "Batt",
+  "Volt Cali",
+  "Curr Cali",
+  "NULL"  
+};
+
+String resetSubItems[] = {
+  "kmTr",
+  "kmRg",
+  "kmAl",
+  "Wh/km",
+  "NULL" 
+};
+*/
+String batterySubItems[] = {
+  "AH",
+  "Vmin",
+  "Vmax",
+  "NULL"
+};
+
+int selIdx = 0;
+int blinkIdx = 0;
+int selLevel = 0;
+
+bool menu = false;
 
 int buttonHoldThreshold = 2000;
 int debounceDelay = 50;
