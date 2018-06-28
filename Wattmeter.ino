@@ -29,7 +29,6 @@ enum taskID{
   alternateCur,
   pageSwitch,
   LCD,
-  LCDMenu, 
   t_speedPoti,
   t_shortTermAVG,
   t_longTermAVG
@@ -69,97 +68,16 @@ class circularBuffer{
     }
   private:
     int firstItem = 0;
-    float data[25];
+    float data[50];
     
 };
 
-taskDefinition task[8];
+taskDefinition task[20];
 
 
 /////////////////////////////////////////////////////////////////////////
 ////menu variables
 
-/*class secondLevelMenuItem{
-   private:
-    
-   public:
-    String displayText;
-    void (*executeButtonInputs)();
-};
-
-class firstLevelMenuItem{
-  private:
-    
-  public:
-    String displayText;
-    secondLevelMenuItem subItems[];
-    void (*executeButtonInputs)();
-};
-
-firstLevelMenuItem Reset;
-  secondLevelMenuItem mi_kmTrip;
-  secondLevelMenuItem mi_kmRange;
-  secondlevelMenuItem mi_kmTotal;
-  secondLevelMenuItem mi_whperkm;
-
-firstLevelMenuItem Batt;
-  secondLevelMenuItem mi_ah;
-  secondLevelMenuItem mi_vmin;
-  secondLevelMenuItem mi_vmax;
-  
-firstLevelMenuItem VoltCali;
-firstLevelMenuItem CurrCali;
-firstLevelMenuItem mainMenueItems[] = {Reset, Batt, VoltCali, CurrCali};*/
-/*const char string_0[] PROGMEM = "Reset";  
-const char string_1[] PROGMEM = "Batt";
-const char string_2[] PROGMEM = "Volt Cali";
-const char string_3[] PROGMEM = "Curr Cali";
-
-char strBuffer[10];
-
-const char* const mainMenuItems[] PROGMEM = {string_0, string_1, string_2, string_3};
-const int mainMenueItemsCount = 4;
-
-const char string_4[] PROGMEM = "kmTr";
-const char string_5[] PROGMEM = "kmRg";
-const char string_6[] PROGMEM = "kmAl";
-const char string_7[] PROGMEM = "Wh/km";
-
-const char* const resetSubItems[] PROGMEM = {string_4, string_5, string_6, string_7};
-
-const char string_8[] PROGMEM = "AH";
-const char string_9[] PROGMEM = "Vmin";
-const char string_10[] PROGMEM = "Vmax";
-const char* const batterySubItems[] PROGMEM = {string_8, string_9, string_10};*/
-
-String mainMenuItems[] = {
-  "Reset",
-  "Batt",
-  "Volt Cali",
-  "Curr Cali",
-  "NULL"  
-};
-
-String resetSubItems[] = {
-  "kmTr",
-  "kmRg",
-  "kmAl",
-  "Wh/km",
-  "NULL" 
-};
-
-String batterySubItems[] = {
-  "AH",
-  "Vmin",
-  "Vmax",
-  "NULL"
-};
-
-int selIdx = 0;
-int blinkIdx = 0;
-int selLevel = 0;
-
-bool menu = false;
 int buttonHoldThreshold = 2000;
 int debounceDelay = 50;
 
@@ -231,7 +149,6 @@ const int lcdLineLength = 20;
 const int lcdHeight = 4;
 int lcdPage = 0;
 LiquidCrystal_I2C lcd(0x27, lcdLineLength, lcdHeight);   
-bool fieldVisibility[2][4] = {{true, true, true, true},{true, true, true, true}};
 
 /////////////////////////////////////////////////////////////////////////
 ////simulation values
@@ -334,10 +251,9 @@ void setup() {
 
   task[readAndProcessCurrAndVolt].period = 10;
   task[LCD].period = 500;
-  task[LCDMenu].period = 250;
   task[pageSwitch].period = 10000;
-  task[t_shortTermAVG].period = 60;
-  task[t_longTermAVG].period = 24000;
+  task[t_shortTermAVG].period = 30;
+  task[t_longTermAVG].period = 12000;
   #ifdef simulateInputs
     task[alternateCur].period = 100;
   #endif
@@ -387,75 +303,66 @@ int idleCount = 0;
 eButtonState lastState = idle;
 
 void loop() {
-  
   eButtonState button1state = button1.getState();
   eButtonState button2state = button2.getState();
-  if(button1state == hold)
-      menu = !menu;
+
+  if(button1state == pressed){
+    switchPage();
+  }
+
+  #ifdef speedPoti
+    if(isCalled(t_speedPoti)){
+      int aSpeed = analogRead(SPEEDPOTIPIN);
+      hsCycle = map(aSpeed, 0, 1023, 249, 7466);
+      Timer1.initialize(hsCycle *1000);
+    }
+  #endif
+
+  if(isCalled(readAndProcessCurrAndVolt)){
+    readAndProcessCurrentAndVoltage();
+  }
+
+  if(isCalled(t_longTermAVG)){
+    if(actShortTermWHperKM != 0)
+      lastLongTermWHperKM.push(actShortTermWHperKM);
+    if(actShortTermAHperKM != 0)
+      lastLongTermAHperKM.push(actShortTermAHperKM);
+  }
+
+  if(isCalled(t_shortTermAVG)){
+    lastShortTermWHperKM.push(actmWHperKM);
+    lastShortTermAHperKM.push(actmAHperKM);
+  }
+
+  #ifdef output
+     outputValues();
+  #else
+    if(isCalled(LCD)){
+      actShortTermWHperKM = lastShortTermWHperKM.calcAverage(true);
+      actShortTermAHperKM = lastShortTermAHperKM.calcAverage(true);
+      actLongTermWHperKM = lastLongTermWHperKM.calcAverage(false);
+      actLongTermAHperKM = lastLongTermAHperKM.calcAverage(false);
+      calculateExpectedRange();
+      calculateBatteryPercentage();
+      writeValuesToLCD();
+    } 
+  #endif
+
+  #ifdef simulateInputs
       
-  if(!menu){
-    
-    
-    if(button1state == pressed){
-      switchPage();
+    if(isCalled(alternateCur)){
+      simulateRealisticCurrent(currentSpeed);
+      //alternateCurrent();
+      //alternateSpeed();
     }
-  
-    #ifdef speedPoti
-      if(isCalled(t_speedPoti)){
-        int aSpeed = analogRead(SPEEDPOTIPIN);
-        hsCycle = map(aSpeed, 0, 1023, 249, 7466);
-        Timer1.initialize(hsCycle *1000);
-      }
-    #endif
-  
-    if(isCalled(readAndProcessCurrAndVolt)){
-      readAndProcessCurrentAndVoltage();
-    }
-  
-    if(isCalled(t_longTermAVG)){
-      if(actShortTermWHperKM != 0)
-        lastLongTermWHperKM.push(actShortTermWHperKM);
-      if(actShortTermAHperKM != 0)
-        lastLongTermAHperKM.push(actShortTermAHperKM);
-    }
-  
-    if(isCalled(t_shortTermAVG)){
-      lastShortTermWHperKM.push(actmWHperKM);
-      lastShortTermAHperKM.push(actmAHperKM);
-    }
-  
-    #ifdef output
-       outputValues();
-    #else
-      if(isCalled(LCD)){
-        actShortTermWHperKM = lastShortTermWHperKM.calcAverage(true);
-        actShortTermAHperKM = lastShortTermAHperKM.calcAverage(true);
-        actLongTermWHperKM = lastLongTermWHperKM.calcAverage(false);
-        actLongTermAHperKM = lastLongTermAHperKM.calcAverage(false);
-        calculateExpectedRange();
-        calculateBatteryPercentage();
-        writeValuesToLCD();
-      } 
-    #endif
-  
-    #ifdef simulateInputs
-        
-      if(isCalled(alternateCur)){
-        simulateRealisticCurrent(currentSpeed);
-        //alternateCurrent();
-        //alternateSpeed();
-      }
-    #endif
-  
-    if(isCalled(pageSwitch)){
-      //switchPage();
-    }
-  
-    if((hsLastTriggered+calcTimeForSpeed(2)) < millis()){
-      timeOut();
-    }
-  }else{
-    showMenu(button1state, button2state);
+  #endif
+
+  if(isCalled(pageSwitch)){
+    //switchPage();
+  }
+
+  if((hsLastTriggered+calcTimeForSpeed(2)) < millis()){
+    timeOut();
   }
 }
 
@@ -508,43 +415,43 @@ void switchPage(){
 
 
 void showLcdPage1(){
-    if(fieldVisibility[0][0])
+    //if(fieldVisibility[0][0])
       LCDWriteLeft(cutString(String(cellVoltage), 4) + " Volt", 0);
-    if(fieldVisibility[0][1])
+    //if(fieldVisibility[0][1])
       LCDWriteLeft(cutString(String(minCellVoltage), 4) + " Vmin", 1);
-    if(fieldVisibility[0][2])
+    //if(fieldVisibility[0][2])
       LCDWriteLeft(cutString(String((int)batteryPercentage), 3) + "% Batt", 2);
-    if(fieldVisibility[0][3])
+    //if(fieldVisibility[0][3])
       LCDWriteLeft(cutString(String(actShortTermWHperKM/1000), 4) + " W/km", 3);
     
-    if(fieldVisibility[1][0])
+    //if(fieldVisibility[1][0])
       LCDWriteRight(cutString(String(currentSpeed), 4) + " km/h", 0);
-    if(fieldVisibility[1][1])
+    //if(fieldVisibility[1][1])
       LCDWriteRight(cutString(String(totalKM), 4) + " km  ", 1);
-    if(fieldVisibility[1][2])
+    //if(fieldVisibility[1][2])
       LCDWriteRight(cutString(String((int)expectedRange), 4) + " kmRg", 2);
-    if(fieldVisibility[1][3])
+    //if(fieldVisibility[1][3])
       LCDWriteRight(cutString(String(actLongTermWHperKM/1000), 4) + " AW/k", 3);
 }
 
 void showLcdPage2()
 {
-    if(fieldVisibility[0][0])
+    //if(fieldVisibility[0][0])
       LCDWriteLeft(cutString(String(actCurrent),4) + " A   ", 0);
-    if(fieldVisibility[0][1])
+    //if(fieldVisibility[0][1])
       LCDWriteLeft(cutString(String((int)actmAHperKM), 4) + " mA/k", 1);
-    if(fieldVisibility[0][2])
+    //if(fieldVisibility[0][2])
       LCDWriteLeft(cutString(String((int)actShortTermAHperKM), 4) + " mA/k", 2);
-    if(fieldVisibility[0][3])
+    //if(fieldVisibility[0][3])
       LCDWriteLeft(cutString(String((int)actLongTermAHperKM), 4) + " mA/k", 3);
 
-    if(fieldVisibility[1][0])
+    //if(fieldVisibility[1][0])
       LCDWriteRight(String(millis()),0);
-    if(fieldVisibility[1][1])
+    //if(fieldVisibility[1][1])
       LCDWriteRight(cutString(String(actPower), 4) + " Watt", 1);
-    if(fieldVisibility[1][2])
+    //if(fieldVisibility[1][2])
       LCDWriteRight(cutString(String((int)totalmAH), 4) + " mAh ", 2);
-    if(fieldVisibility[1][3])
+    //if(fieldVisibility[1][3])
       LCDWriteRight(cutString(String(totalBatteryCapacity-totalmAH), 4) + " mAhL", 3);
     
     
@@ -570,6 +477,7 @@ String cutString(String value, int pLength){
     }
   }
   return value;
+  return "";
 }
 
 
@@ -752,152 +660,7 @@ float readVoltage(){
 
 
 
-/////////////////////////////////////////////////////////////////////////
-////menu
 
-int testState = 0;
-int testCount = 0;
-
-void showMenu(eButtonState button1state, eButtonState button2state){
-  if(button1state == pressed)
-    scrollUp();
-  else if(button2state == pressed)
-    scrollDown(getStringArrayLength(mainMenuItems));
-
-  if(isCalled(LCDMenu)){
-    showMainMenu();
-    blinkOnField(0,blinkIdx);
-  }
-    
-  //if(testCount == 2 || testCount == 4)
- 
-  /*testCount++;
-  if(testCount>5){
-    switch(testState){
-      case 0:
-        scrollDown(getStringArrayLength(mainMenuItems));
-        if(selIdx == getStringArrayLength(mainMenuItems)-1)
-          testState = 1;
-        break;
-      case 1:
-        scrollUp();
-        if(selIdx == 0)
-          testState = 0;
-        break;
-    }
-    testCount = 0;
-  }*/
-  setInvisibleFields();
-}
-
-void showMainMenu(){
-  int itemCount = getStringArrayLength(mainMenuItems);
-  fieldVisibility[0][blinkIdx] = true;
-  if((selIdx+lcdHeight)<itemCount){
-    blinkIdx = 0;
-    for(int i=selIdx;i<(selIdx+lcdHeight);i++){
-      if(fieldVisibility[0][i-selIdx])
-        LCDWriteLeft(mainMenuItems[i], i-selIdx);
-    }
-  }else{ //this are the last items
-    blinkIdx = selIdx+lcdHeight-itemCount;
-    for(int i=itemCount-1;i>(itemCount-lcdHeight-1);i--){
-      if(fieldVisibility[0][i-itemCount+lcdHeight])
-        LCDWriteLeft(mainMenuItems[i], i-itemCount+lcdHeight);
-    }
-  }
-
-  switch(selIdx){
-    case 0: //reset
-      showSubItems(resetSubItems);
-      break;
-    case 1: //batt
-      showSubItems(batterySubItems);
-      break;
-    case 2: //volt cali
-      showSubItems(NULL);
-      break;
-    case 3: //curr cali
-      showSubItems(NULL);
-      break;
-  }
-  
-}
-
-void showSubItems(String arr[]){
-  int subItemsCount = lcdHeight;
-  bool createEmptyLines = false;
-  if(arr != NULL){
-    if(getStringArrayLength(arr)<lcdHeight){
-      subItemsCount = getStringArrayLength(arr);
-      createEmptyLines = true;
-    }
-
-    for(int i=0;i<subItemsCount;i++){
-      LCDWriteRight(arr[i], i);
-    }
-  }else{
-    createEmptyLines = true;
-  }
-  
-    
-  
-
-  if(createEmptyLines){
-    for(int i=getStringArrayLength(arr);i<lcdHeight;i++){
-      LCDWriteRight("", i);
-    }
-  }
-}
-
-int getStringArrayLength(String arr[]){
-  if(arr == NULL)
-    return 0;
-  int count = 0;
-  while(arr[count] != "NULL")
-    count++;
-
-  return count;
-}
-
-void scrollDown(int itemCount){
-  if(selIdx<itemCount-1)
-    selIdx++;
-}
-
-void scrollUp(){
-  if(selIdx>0)
-    selIdx--;
-}
-
-bool blinkFieldState = false;
-int blinkRatio = 2; // X:1
-int currentBlinkCount = 0;
-
-void blinkOnField(int x, int y){
-  if(blinkFieldState){
-    currentBlinkCount++;
-    if(currentBlinkCount == blinkRatio){
-      blinkFieldState = false;
-      currentBlinkCount = 0;
-    }
-      
-    fieldVisibility[x][y] = true;
-  }else{
-    blinkFieldState = true;
-    fieldVisibility[x][y] = false;
-  }
-}
-
-void setInvisibleFields(){
-  for(int a=0;a<4;a++){
-    if(!fieldVisibility[0][a])
-      LCDWriteLeft("",a);
-
-    if(!fieldVisibility[1][a])
-      LCDWriteRight("", a);
-  }
-}
 
 
 
@@ -982,4 +745,5 @@ int spdState = 0;
     
   }
 #endif
+
 
